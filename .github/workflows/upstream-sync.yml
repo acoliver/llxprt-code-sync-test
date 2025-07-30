@@ -237,6 +237,4 @@ jobs:
             --title "$PR_TITLE" \
             --body-file pr-body.md \
             --head "${{ steps.create-branch.outputs.branch_name }}" \
-            --base main \
-            --label "upstream-sync" \
-            --label "automated"
+            --base main
