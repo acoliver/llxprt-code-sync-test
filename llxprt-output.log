@@ -1,0 +1,5 @@
+npm warn exec The following package was not found and will be installed: github:acoliver/llxprt-code
+Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+Error when talking to Gemini API Full report available at: /tmp/gemini-client-error-Turn.run-sendMessageStream-2025-07-30T23-30-41-598Z.json
+
+Error: {"error":{"message":"{\n  \"error\": {\n    \"code\": 401,\n    \"message\": \"API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.google.com/docs/authentication\",\n    \"status\": \"UNAUTHENTICATED\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/google.rpc.ErrorInfo\",\n        \"reason\": \"CREDENTIALS_MISSING\",\n        \"domain\": \"googleapis.com\",\n        \"metadata\": {\n          \"method\": \"google.cloud.aiplatform.v1beta1.PredictionService.StreamGenerateContent\",\n          \"service\": \"aiplatform.googleapis.com\"\n        }\n      }\n    ]\n  }\n}\n","code":401,"status":"Unauthorized"}}
