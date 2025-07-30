@@ -1,0 +1,238 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    # Run daily at 3 AM ART (UTC-3), which is 6 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60  # Overall job timeout
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Add upstream remote
+        run: |
+          # Add upstream remote if it doesn't exist
+          if ! git remote | grep -q '^upstream$'; then
+            echo "Adding upstream remote..."
+            # Replace this with your actual upstream repository URL
+            git remote add upstream https://github.com/google-gemini/gemini-cli.git
+          fi
+          git fetch upstream
+      
+      - name: Check for new upstream commits
+        id: check-commits
+        run: |
+          # Get the current branch
+          CURRENT_BRANCH=$(git branch --show-current)
+          echo "Current branch: $CURRENT_BRANCH"
+          
+          # Check if there are new commits in upstream
+          COMMITS_BEHIND=$(git rev-list --count HEAD..upstream/$CURRENT_BRANCH || echo "0")
+          echo "Commits behind upstream: $COMMITS_BEHIND"
+          
+          if [ "$COMMITS_BEHIND" -gt 0 ]; then
+            echo "has_new_commits=true" >> $GITHUB_OUTPUT
+            echo "commits_behind=$COMMITS_BEHIND" >> $GITHUB_OUTPUT
+          else
+            echo "has_new_commits=false" >> $GITHUB_OUTPUT
+            echo "No new commits from upstream"
+          fi
+      
+      - name: Create sync branch
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: create-branch
+        run: |
+          # Create a unique branch name with timestamp
+          BRANCH_NAME="upstream-sync-$(date +%Y%m%d-%H%M%S)"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          
+          # Create and checkout the new branch
+          git checkout -b $BRANCH_NAME
+          echo "Created branch: $BRANCH_NAME"
+      
+      - name: Run llxprt-code
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: llxprt
+        timeout-minutes: 45
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          echo "Running llxprt-code with --yolo flag..."
+          
+          # Run llxprt-code and capture output
+          set +e  # Don't exit on error
+          npx https://github.com/acoliver/llxprt-code --yolo 2>&1 | tee llxprt-output.log
+          LLXPRT_EXIT_CODE=$?
+          set -e
+          
+          echo "llxprt-code exit code: $LLXPRT_EXIT_CODE"
+          echo "exit_code=$LLXPRT_EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Save the output for the PR description
+          {
+            echo 'llxprt_output<<EOF'
+            tail -n 100 llxprt-output.log
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+      
+      - name: Check for merge conflicts
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: check-conflicts
+        run: |
+          echo "Checking for unresolved merge conflicts..."
+          
+          # Search for conflict markers in all files
+          set +e  # Don't exit on error
+          CONFLICT_FILES=$(git grep -l "^<<<<<<< " || true)
+          set -e
+          
+          if [ -n "$CONFLICT_FILES" ]; then
+            echo "has_conflicts=true" >> $GITHUB_OUTPUT
+            echo "Found merge conflicts in the following files:"
+            echo "$CONFLICT_FILES"
+            
+            # Save conflict files for PR description
+            {
+              echo 'conflict_files<<EOF'
+              echo "$CONFLICT_FILES"
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+          else
+            echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            echo "No merge conflicts detected"
+          fi
+      
+      - name: Get commit information
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: commit-info
+        run: |
+          # Get the list of commits that were cherry-picked
+          CURRENT_BRANCH=$(git branch --show-current | sed 's/upstream-sync-.*/main/')
+          
+          # Get commit log between HEAD and upstream
+          {
+            echo 'commit_log<<EOF'
+            git log --oneline --reverse HEAD..upstream/$CURRENT_BRANCH | head -50
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+          
+          # Get the commit range
+          FIRST_COMMIT=$(git rev-list --reverse HEAD..upstream/$CURRENT_BRANCH | head -1 | cut -c1-7)
+          LAST_COMMIT=$(git rev-list HEAD..upstream/$CURRENT_BRANCH | head -1 | cut -c1-7)
+          echo "commit_range=$FIRST_COMMIT..$LAST_COMMIT" >> $GITHUB_OUTPUT
+      
+      - name: Commit changes
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        run: |
+          # Check if there are changes to commit
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "Sync with upstream: cherry-pick commits from upstream"
+          fi
+      
+      - name: Push branch
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        run: |
+          git push origin ${{ steps.create-branch.outputs.branch_name }}
+      
+      - name: Create Pull Request
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Prepare PR title and body
+          PR_TITLE="🔄 Upstream Sync: ${{ steps.check-commits.outputs.commits_behind }} new commits"
+          
+          if [ "${{ steps.check-conflicts.outputs.has_conflicts }}" == "true" ]; then
+            PR_TITLE="$PR_TITLE (⚠️ Conflicts need resolution)"
+          fi
+          
+          # Create PR body
+          cat > pr-body.md << 'EOF'
+          ## Upstream Sync Summary
+          
+          This PR syncs ${{ steps.check-commits.outputs.commits_behind }} commits from upstream.
+          
+          ### 🤖 llxprt-code Execution
+          - Exit code: ${{ steps.llxprt.outputs.exit_code }}
+          - Timeout: 45 minutes
+          - Flags: `--yolo`
+          
+          ### 📊 Status
+          EOF
+          
+          if [ "${{ steps.check-conflicts.outputs.has_conflicts }}" == "true" ]; then
+            cat >> pr-body.md << 'EOF'
+          - ⚠️ **Merge conflicts detected!** Manual resolution required.
+          
+          #### Conflicted Files:
+          ```
+          ${{ steps.check-conflicts.outputs.conflict_files }}
+          ```
+          EOF
+          else
+            cat >> pr-body.md << 'EOF'
+          - ✅ No merge conflicts detected
+          EOF
+          fi
+          
+          cat >> pr-body.md << 'EOF'
+          
+          ### 📝 Commits to Cherry-pick
+          Commit range: `${{ steps.commit-info.outputs.commit_range }}`
+          
+          <details>
+          <summary>Click to see commit list</summary>
+          
+          ```
+          ${{ steps.commit-info.outputs.commit_log }}
+          ```
+          </details>
+          
+          ### 🔧 llxprt-code Output (last 100 lines)
+          <details>
+          <summary>Click to see output</summary>
+          
+          ```
+          ${{ steps.llxprt.outputs.llxprt_output }}
+          ```
+          </details>
+          
+          ---
+          
+          ### ⚡ Next Steps
+          1. Review the changes in this PR
+          2. If conflicts exist, resolve them manually
+          3. Run tests to ensure everything works
+          4. Merge when ready
+          
+          > **Note**: This branch will be preserved for inspection. Do not delete until the sync is complete.
+          EOF
+          
+          # Create the PR using GitHub CLI
+          gh pr create \
+            --title "$PR_TITLE" \
+            --body-file pr-body.md \
+            --head "${{ steps.create-branch.outputs.branch_name }}" \
+            --base main \
+            --label "upstream-sync" \
+            --label "automated"
