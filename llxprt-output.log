@@ -1,0 +1,7 @@
+npm warn exec The following package was not found and will be installed: github:acoliver/llxprt-code
+npm warn EBADENGINE Unsupported engine {
+npm warn EBADENGINE   package: '@vybestack/llxprt-code@0.1.14',
+npm warn EBADENGINE   required: { node: '>=24' },
+npm warn EBADENGINE   current: { node: 'v20.19.4', npm: '10.8.2' }
+npm warn EBADENGINE }
+No input provided via stdin.
