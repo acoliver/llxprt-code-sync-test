@@ -78,7 +78,7 @@ jobs:
         id: llxprt
         timeout-minutes: 45
         env:
-          GEMINI_MERGE_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GEMINI_MERGE_KEY: ${{ secrets.GEMINI_MERGE_KEY }}
         run: |
           echo "Running llxprt-code with --yolo flag..."
 
