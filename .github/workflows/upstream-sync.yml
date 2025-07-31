@@ -78,7 +78,7 @@ jobs:
         id: llxprt
         timeout-minutes: 45
         env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GEMINI_MERGE_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           echo "Running llxprt-code with --yolo flag..."
 
@@ -92,7 +92,7 @@ jobs:
             --yolo \
             --provider gemini \
             --model gemini-2.5-pro \
-            --key "$GOOGLE_API_KEY" \
+            --key "$GEMINI_MERGE_KEY" \
             --prompt "Cherry-pick these commits from upstream/main IN ORDER: $COMMIT_LIST. Rules: PRESERVE all LLXPRT branding and vybestack package names. When you get build errors about missing exports, add them to the appropriate index.ts files. When you get type errors, investigate and fix them. After each cherry-pick, run npm run build to check for errors. Fix ALL errors before moving to the next commit. Run npm run test, npm run lint, npm run format at the end. Keep working until everything passes." \
             2>&1 | tee llxprt-output.log
           LLXPRT_EXIT_CODE=$?
