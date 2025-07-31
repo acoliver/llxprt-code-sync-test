@@ -93,7 +93,7 @@ jobs:
             --provider gemini \
             --model gemini-2.5-pro \
             --key "$GEMINI_MERGE_KEY" \
-            --prompt "Cherry-pick these commits from upstream/main IN ORDER: $COMMIT_LIST. Rules: PRESERVE all LLXPRT branding and vybestack package names. When you get build errors about missing exports, add them to the appropriate index.ts files. When you get type errors, investigate and fix them. After each cherry-pick, run npm run build to check for errors. Fix ALL errors before moving to the next commit. Run npm run test, npm run lint, npm run format at the end. Keep working until everything passes." \
+            --prompt "Cherry-pick these commits from upstream/main IN ORDER: $COMMIT_LIST. CRITICAL: This is LLXPRT-CODE, not gemini-cli. Preserve ALL our custom features: Multi-provider support (Gemini, Qwen, etc.) - DO NOT remove. Our authentication system (API keys) - DO NOT revert to OAuth-only. UI improvements and custom themes. Performance optimizations we've added. All LLXPRT branding and vybestack package names. When resolving conflicts: Take upstream bug fixes and improvements. KEEP our features and enhancements. If unsure, preserve the LLXPRT version. When you get build errors about missing exports, add them to the appropriate index.ts files. When you get type errors, investigate and fix them. After each cherry-pick, run npm run build to check for errors. Fix ALL errors before moving to the next commit. Run npm run test, npm run lint, npm run format at the end. Keep working until everything passes." \
             2>&1 | tee llxprt-output.log
           LLXPRT_EXIT_CODE=$?
           set -e
