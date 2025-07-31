@@ -76,7 +76,7 @@ jobs:
       - name: Run llxprt-code
         if: steps.check-commits.outputs.has_new_commits == 'true'
         id: llxprt
-        timeout-minutes: 45
+        timeout-minutes: 180
         env:
           GEMINI_MERGE_KEY: ${{ secrets.GEMINI_MERGE_KEY }}
         run: |
