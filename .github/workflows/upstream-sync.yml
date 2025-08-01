@@ -1,166 +1,250 @@
 name: Upstream Sync
 
 on:
+  schedule:
+    # Run daily at 3 AM ART (UTC-3), which is 6 AM UTC
+    - cron: '0 6 * * *'
   workflow_dispatch:
-  # schedule:
-  #   - cron: '0 2 * * *'  # Daily at 2 AM UTC
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  sync:
+  sync-upstream:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 3-hour timeout for llxprt-code execution
-    
+    timeout-minutes: 60 # Overall job timeout
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Fetch all history
           token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      
+
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-      
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Add upstream remote
         run: |
-          git remote add upstream https://github.com/google-gemini/gemini-cli.git || true
-          git fetch upstream main
-      
-      - name: Create sync branch
-        run: |
-          BRANCH_NAME="sync/upstream-$(date +%Y%m%d-%H%M%S)"
-          echo "SYNC_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
-          git checkout -b $BRANCH_NAME
-      
-      - name: Merge upstream changes
-        id: merge
-        run: |
-          # Attempt to merge upstream/main
-          if git merge upstream/main --no-edit; then
-            echo "merge_success=true" >> $GITHUB_OUTPUT
-          else
-            echo "merge_success=false" >> $GITHUB_OUTPUT
-            echo "Merge conflicts detected, will use llxprt-code to resolve"
+          # Add upstream remote if it doesn't exist
+          if ! git remote | grep -q '^upstream'; then
+            echo "Adding upstream remote..."
+            # Replace this with your actual upstream repository URL
+            git remote add upstream https://github.com/google-gemini/gemini-cli.git
           fi
-      
-      - name: Check for conflicts
-        if: steps.merge.outputs.merge_success == 'false'
+          git fetch upstream
+
+      - name: Check for new upstream commits
+        id: check-commits
         run: |
-          chmod +x .github/scripts/check-conflicts.sh
-          .github/scripts/check-conflicts.sh
-      
-      - name: Resolve conflicts with llxprt-code
-        if: steps.merge.outputs.merge_success == 'false'
+          # Get the current branch
+          CURRENT_BRANCH=$(git branch --show-current)
+          echo "Current branch: $CURRENT_BRANCH"
+
+          # Check if there are new commits in upstream
+          COMMITS_BEHIND=$(git rev-list --count HEAD..upstream/$CURRENT_BRANCH || echo "0")
+          echo "Commits behind upstream: $COMMITS_BEHIND"
+
+          if [ "$COMMITS_BEHIND" -gt 0 ]; then
+            echo "has_new_commits=true" >> $GITHUB_OUTPUT
+            echo "commits_behind=$COMMITS_BEHIND" >> $GITHUB_OUTPUT
+          else
+            echo "has_new_commits=false" >> $GITHUB_OUTPUT
+            echo "No new commits from upstream"
+          fi
+
+      - name: Create sync branch
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: create-branch
+        run: |
+          # Create a unique branch name with timestamp
+          BRANCH_NAME="upstream-sync-$(date +%Y%m%d-%H%M%S)"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+          # Create and checkout the new branch
+          git checkout -b $BRANCH_NAME
+          echo "Created branch: $BRANCH_NAME"
+
+      - name: Run llxprt-code
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: llxprt
+        timeout-minutes: 180
         env:
           GEMINI_MERGE_KEY: ${{ secrets.GEMINI_MERGE_KEY }}
         run: |
-          # Run llxprt-code to resolve conflicts
-          npx https://github.com/acoliver/llxprt-code --yolo --provider gemini --model gemini-2.5-pro << 'EOF'
-          Please resolve all merge conflicts in this repository. When resolving conflicts:
-          
-          1. Preserve all LLXPRT-specific features and enhancements:
-             - Multi-provider support (OpenAI, Anthropic, Gemini, etc.)
-             - API key authentication improvements
-             - UI/UX enhancements and branding
-             - Performance optimizations
-             - Custom LLXPRT branding and identity
-          
-          2. Integrate upstream changes while maintaining LLXPRT functionality:
-             - Accept upstream bug fixes and improvements
-             - Keep LLXPRT's extended provider support
-             - Maintain LLXPRT's enhanced error handling
-             - Preserve LLXPRT's custom features
-          
-          3. For conflicting changes:
-             - If upstream adds a feature LLXPRT already has, keep the LLXPRT version
-             - If upstream fixes a bug, accept the fix while preserving LLXPRT code structure
-             - When in doubt, prioritize LLXPRT's functionality
-          
-          After resolving all conflicts, ensure the code builds and tests pass.
-          EOF
-      
-      - name: Check for remaining conflicts
+          echo "Running llxprt-code with --yolo flag..."
+
+          # Get the list of commits to cherry-pick
+          COMMIT_LIST=$(git log --oneline --reverse HEAD..upstream/main | awk '{print $1}' | tr '\n' ' ')
+          echo "Commits to cherry-pick: $COMMIT_LIST"
+
+          # Run llxprt-code and capture output
+          set +e  # Don't exit on error
+          npx https://github.com/acoliver/llxprt-code \
+            --yolo \
+            --provider gemini \
+            --model gemini-2.5-pro \
+            --key "$GEMINI_MERGE_KEY" \
+            --prompt "Cherry-pick these commits from upstream/main IN ORDER: $COMMIT_LIST. CRITICAL: This is LLXPRT-CODE, not gemini-cli. Preserve ALL our custom features: Multi-provider support (Gemini, Qwen, etc.) - DO NOT remove. Our authentication system (API keys) - DO NOT revert to OAuth-only. UI improvements and custom themes. Performance optimizations we've added. All LLXPRT branding and vybestack package names. When resolving conflicts: Take upstream bug fixes and improvements. KEEP our features and enhancements. If unsure, preserve the LLXPRT version. When you get build errors about missing exports, add them to the appropriate index.ts files. When you get type errors, investigate and fix them. After each cherry-pick, run npm run build to check for errors. Fix ALL errors before moving to the next commit. Run npm run test, npm run lint, npm run format at the end. Keep working until everything passes." \
+            2>&1 | tee llxprt-output.log
+          LLXPRT_EXIT_CODE=$?
+          set -e
+
+          echo "llxprt-code exit code: $LLXPRT_EXIT_CODE"
+          echo "exit_code=$LLXPRT_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Save the output for the PR description
+          {
+            echo 'llxprt_output<<EOF'
+            tail -n 100 llxprt-output.log
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Check for merge conflicts
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: check-conflicts
         run: |
-          if grep -r "<<<<<<< HEAD" . --exclude-dir=.git; then
-            echo "Unresolved conflicts remain after llxprt-code execution"
-            exit 1
-          fi
-      
-      - name: Commit changes
-        run: |
-          # Stage all changes
-          git add -A
-          
-          # Check if there are changes to commit
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            echo "has_changes=false" >> $GITHUB_ENV
+          echo "Checking for unresolved merge conflicts..."
+
+          # Search for conflict markers in all files
+          set +e  # Don't exit on error
+          CONFLICT_FILES=$(git grep -l "^<<<<<<< " || true)
+          set -e
+
+          if [ -n "$CONFLICT_FILES" ]; then
+            echo "has_conflicts=true" >> $GITHUB_OUTPUT
+            echo "Found merge conflicts in the following files:"
+            echo "$CONFLICT_FILES"
+            
+            # Save conflict files for PR description
+            {
+              echo 'conflict_files<<EOF'
+              echo "$CONFLICT_FILES"
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
           else
-            git commit -m "Sync with upstream $(date +%Y-%m-%d)"
-            echo "has_changes=true" >> $GITHUB_ENV
+            echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            echo "No merge conflicts detected"
           fi
-      
+
+      - name: Get commit information
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: commit-info
+        run: |
+          # Get the list of commits that were cherry-picked
+          CURRENT_BRANCH=$(git branch --show-current | sed 's/upstream-sync-.*/main/')
+
+          # Get commit log between HEAD and upstream
+          {
+            echo 'commit_log<<EOF'
+            git log --oneline --reverse HEAD..upstream/$CURRENT_BRANCH | head -50
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+          # Get the commit range
+          FIRST_COMMIT=$(git rev-list --reverse HEAD..upstream/$CURRENT_BRANCH | head -1 | cut -c1-7)
+          LAST_COMMIT=$(git rev-list HEAD..upstream/$CURRENT_BRANCH | head -1 | cut -c1-7)
+          echo "commit_range=$FIRST_COMMIT..$LAST_COMMIT" >> $GITHUB_OUTPUT
+
+      - name: Commit changes
+        if: steps.check-commits.outputs.has_new_commits == 'true'
+        run: |
+          # Check if there are changes to commit
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "Sync with upstream: cherry-pick commits from upstream"
+          fi
+
       - name: Push branch
-        if: env.has_changes == 'true'
+        if: steps.check-commits.outputs.has_new_commits == 'true'
         run: |
-          git push origin ${{ env.SYNC_BRANCH }}
-      
+          git push origin ${{ steps.create-branch.outputs.branch_name }}
+
       - name: Create Pull Request
-        if: env.has_changes == 'true'
+        if: steps.check-commits.outputs.has_new_commits == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get list of commits
-          COMMITS=$(git log origin/main..${{ env.SYNC_BRANCH }} --pretty=format:"- %s" --reverse)
-          
+          # Prepare PR title and body
+          PR_TITLE="🔄 Upstream Sync: ${{ steps.check-commits.outputs.commits_behind }} new commits"
+
+          if [ "${{ steps.check-conflicts.outputs.has_conflicts }}" == "true" ]; then
+            PR_TITLE="$PR_TITLE (⚠️ Conflicts need resolution)"
+          fi
+
           # Create PR body
-          PR_BODY=$(cat << 'EOF'
-          ## Upstream Sync
-          
-          This PR synchronizes our fork with the latest changes from the upstream repository.
-          
-          ### Sync Details
-          - **Upstream**: google-gemini/gemini-cli
-          - **Sync Date**: $(date +"%Y-%m-%d %H:%M:%S UTC")
-          - **Merge Method**: Automatic with llxprt-code conflict resolution
-          
-          ### Changes Included
-          $COMMITS
-          
-          ### Conflict Resolution
-          Any merge conflicts were automatically resolved using llxprt-code with the following priorities:
-          - ✅ Preserved LLXPRT multi-provider support
-          - ✅ Maintained API key authentication enhancements
-          - ✅ Kept UI/UX improvements and branding
-          - ✅ Protected performance optimizations
-          - ✅ Retained custom LLXPRT features
-          
-          ### Review Checklist
-          - [ ] All LLXPRT features are preserved
-          - [ ] Upstream bug fixes are integrated
-          - [ ] No regression in functionality
-          - [ ] Code builds successfully
-          - [ ] Tests pass
-          
-          ---
-          *This PR was automatically generated by the Upstream Sync workflow.*
+          cat > pr-body.md << 'EOF'
+          ## Upstream Sync Summary
+
+          This PR syncs ${{ steps.check-commits.outputs.commits_behind }} commits from upstream.
+
+          ### 🤖 llxprt-code Execution
+          - Exit code: ${{ steps.llxprt.outputs.exit_code }}
+          - Timeout: 45 minutes
+          - Flags: `--yolo`
+
+          ### 📊 Status
           EOF
-          )
-          
-          # Create the PR
+
+          if [ "${{ steps.check-conflicts.outputs.has_conflicts }}" == "true" ]; then
+            cat >> pr-body.md << 'EOF'
+          - ⚠️ **Merge conflicts detected!** Manual resolution required.
+
+          #### Conflicted Files:
+          ```
+          ${{ steps.check-conflicts.outputs.conflict_files }}
+          ```
+          EOF
+          else
+            cat >> pr-body.md << 'EOF'
+          - ✅ No merge conflicts detected
+          EOF
+          fi
+
+          cat >> pr-body.md << 'EOF'
+
+          ### 📝 Commits to Cherry-pick
+          Commit range: `${{ steps.commit-info.outputs.commit_range }}`
+
+          <details>
+          <summary>Click to see commit list</summary>
+
+          ```
+          ${{ steps.commit-info.outputs.commit_log }}
+          ```
+          </details>
+
+          ### 🔧 llxprt-code Output (last 100 lines)
+          <details>
+          <summary>Click to see output</summary>
+
+          ```
+          ${{ steps.llxprt.outputs.llxprt_output }}
+          ```
+          </details>
+
+          ---
+
+          ### ⚡ Next Steps
+          1. Review the changes in this PR
+          2. If conflicts exist, resolve them manually
+          3. Run tests to ensure everything works
+          4. Merge when ready
+
+          > **Note**: This branch will be preserved for inspection. Do not delete until the sync is complete.
+          EOF
+
+          # Create the PR using GitHub CLI
           gh pr create \
-            --title "Sync with upstream ($(date +%Y-%m-%d))" \
-            --body "$PR_BODY" \
-            --base main \
-            --head ${{ env.SYNC_BRANCH }} \
-            --label "upstream-sync,automated"
+            --title "$PR_TITLE" \
+            --body-file pr-body.md \
+            --head "${{ steps.create-branch.outputs.branch_name }}" \
+            --base main
