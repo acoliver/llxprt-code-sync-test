@@ -1,0 +1,166 @@
+name: Upstream Sync
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 2 * * *'  # Daily at 2 AM UTC
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3-hour timeout for llxprt-code execution
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/mckaywrigley/take-home-cursor-ai.git || true
+          git fetch upstream main
+      
+      - name: Create sync branch
+        run: |
+          BRANCH_NAME="sync/upstream-$(date +%Y%m%d-%H%M%S)"
+          echo "SYNC_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
+          git checkout -b $BRANCH_NAME
+      
+      - name: Merge upstream changes
+        id: merge
+        run: |
+          # Attempt to merge upstream/main
+          if git merge upstream/main --no-edit; then
+            echo "merge_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "merge_success=false" >> $GITHUB_OUTPUT
+            echo "Merge conflicts detected, will use llxprt-code to resolve"
+          fi
+      
+      - name: Check for conflicts
+        if: steps.merge.outputs.merge_success == 'false'
+        run: |
+          chmod +x .github/scripts/check-conflicts.sh
+          .github/scripts/check-conflicts.sh
+      
+      - name: Resolve conflicts with llxprt-code
+        if: steps.merge.outputs.merge_success == 'false'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_MERGE_KEY }}
+        run: |
+          # Run llxprt-code to resolve conflicts
+          npx https://github.com/acoliver/llxprt-code --yolo --provider gemini --model gemini-2.5-pro << 'EOF'
+          Please resolve all merge conflicts in this repository. When resolving conflicts:
+          
+          1. Preserve all LLXPRT-specific features and enhancements:
+             - Multi-provider support (OpenAI, Anthropic, Gemini, etc.)
+             - API key authentication improvements
+             - UI/UX enhancements and branding
+             - Performance optimizations
+             - Custom LLXPRT branding and identity
+          
+          2. Integrate upstream changes while maintaining LLXPRT functionality:
+             - Accept upstream bug fixes and improvements
+             - Keep LLXPRT's extended provider support
+             - Maintain LLXPRT's enhanced error handling
+             - Preserve LLXPRT's custom features
+          
+          3. For conflicting changes:
+             - If upstream adds a feature LLXPRT already has, keep the LLXPRT version
+             - If upstream fixes a bug, accept the fix while preserving LLXPRT code structure
+             - When in doubt, prioritize LLXPRT's functionality
+          
+          After resolving all conflicts, ensure the code builds and tests pass.
+          EOF
+      
+      - name: Check for remaining conflicts
+        run: |
+          if grep -r "<<<<<<< HEAD" . --exclude-dir=.git; then
+            echo "Unresolved conflicts remain after llxprt-code execution"
+            exit 1
+          fi
+      
+      - name: Commit changes
+        run: |
+          # Stage all changes
+          git add -A
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "has_changes=false" >> $GITHUB_ENV
+          else
+            git commit -m "Sync with upstream $(date +%Y-%m-%d)"
+            echo "has_changes=true" >> $GITHUB_ENV
+          fi
+      
+      - name: Push branch
+        if: env.has_changes == 'true'
+        run: |
+          git push origin ${{ env.SYNC_BRANCH }}
+      
+      - name: Create Pull Request
+        if: env.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get list of commits
+          COMMITS=$(git log origin/main..${{ env.SYNC_BRANCH }} --pretty=format:"- %s" --reverse)
+          
+          # Create PR body
+          PR_BODY=$(cat << 'EOF'
+          ## Upstream Sync
+          
+          This PR synchronizes our fork with the latest changes from the upstream repository.
+          
+          ### Sync Details
+          - **Upstream**: mckaywrigley/take-home-cursor-ai
+          - **Sync Date**: $(date +"%Y-%m-%d %H:%M:%S UTC")
+          - **Merge Method**: Automatic with llxprt-code conflict resolution
+          
+          ### Changes Included
+          $COMMITS
+          
+          ### Conflict Resolution
+          Any merge conflicts were automatically resolved using llxprt-code with the following priorities:
+          - ✅ Preserved LLXPRT multi-provider support
+          - ✅ Maintained API key authentication enhancements
+          - ✅ Kept UI/UX improvements and branding
+          - ✅ Protected performance optimizations
+          - ✅ Retained custom LLXPRT features
+          
+          ### Review Checklist
+          - [ ] All LLXPRT features are preserved
+          - [ ] Upstream bug fixes are integrated
+          - [ ] No regression in functionality
+          - [ ] Code builds successfully
+          - [ ] Tests pass
+          
+          ---
+          *This PR was automatically generated by the Upstream Sync workflow.*
+          EOF
+          )
+          
+          # Create the PR
+          gh pr create \
+            --title "Sync with upstream ($(date +%Y-%m-%d))" \
+            --body "$PR_BODY" \
+            --base main \
+            --head ${{ env.SYNC_BRANCH }} \
+            --label "upstream-sync,automated"
