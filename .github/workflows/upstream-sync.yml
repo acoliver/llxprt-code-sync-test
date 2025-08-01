@@ -33,7 +33,7 @@ jobs:
       
       - name: Add upstream remote
         run: |
-          git remote add upstream https://github.com/mckaywrigley/take-home-cursor-ai.git || true
+          git remote add upstream https://github.com/google-gemini/gemini-cli.git || true
           git fetch upstream main
       
       - name: Create sync branch
@@ -62,7 +62,7 @@ jobs:
       - name: Resolve conflicts with llxprt-code
         if: steps.merge.outputs.merge_success == 'false'
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_MERGE_KEY }}
+          GEMINI_MERGE_KEY: ${{ secrets.GEMINI_MERGE_KEY }}
         run: |
           # Run llxprt-code to resolve conflicts
           npx https://github.com/acoliver/llxprt-code --yolo --provider gemini --model gemini-2.5-pro << 'EOF'
@@ -130,7 +130,7 @@ jobs:
           This PR synchronizes our fork with the latest changes from the upstream repository.
           
           ### Sync Details
-          - **Upstream**: mckaywrigley/take-home-cursor-ai
+          - **Upstream**: google-gemini/gemini-cli
           - **Sync Date**: $(date +"%Y-%m-%d %H:%M:%S UTC")
           - **Merge Method**: Automatic with llxprt-code conflict resolution
           
