@@ -1,0 +1,31 @@
+npm warn exec The following package was not found and will be installed: github:acoliver/llxprt-code
+Okay, I will cherry-pick the commits as instructed, preserving all custom features of LLXPRT-CODE.
+
+My plan is as follows:
+1.  Cherry-pick commits `dccca91f`, `38770660`, and `15a1f1af` in order.
+2.  Resolve any merge conflicts by taking upstream bug fixes while preserving our features.
+3.  Run `npm run build` after each cherry-pick and fix any errors that arise.
+4.  After all commits are applied, run `npm run test`, `npm run lint`, and `npm run format` to ensure everything is correct.
+
+I will start by creating a TODO list to track my progress.I need to cherry-pick three commits from `upstream/main` while preserving `llxprt-code-sync-test`'s features and handling any conflicts or errors as instructed. I've created a TODO list and will now update my local repository before cherry-picking the first commit, `dccca91f`.Now I will start with the first cherry-pick.Attempt 1 failed with status 500. Retrying with backoff... _ApiError: {"error":{"message":"{\n  \"error\": {\n    \"code\": 500,\n    \"message\": \"An internal error has occurred. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\n    \"status\": \"INTERNAL\"\n  }\n}\n","code":500,"status":"Internal Server Error"}}
+    at throwErrorIfNotOK (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:64231:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:68171:11
+    at async Models.generateContentStream (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:69011:20)
+    at async GeminiProvider.generateChatCompletion (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:178902:25)
+    at async GeminiCompatibleWrapper.generateContent (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:92303:26)
+    at async retryWithBackoff (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:149842:14)
+    at async GeminiClient.generateJson (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:154610:26)
+    at async checkNextSpeaker (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:149708:28)
+    at async GeminiClient.sendMessageStream (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:154559:38) {
+  status: 500
+}
+Failed to parse JSON response from generateJson. Full report available at: /tmp/gemini-client-error-generateJson-parse-2025-08-01T23-08-30-171Z.json
+Error generating JSON content via API. Full report available at: /tmp/gemini-client-error-generateJson-api-2025-08-01T23-08-30-171Z.json
+Failed to talk to provider endpoint when seeing if conversation should continue. Error: Failed to generate JSON content: Failed to parse API response as JSON: Unexpected token ''', "'model'" is not valid JSON
+    at GeminiClient.generateJson (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:154668:17)
+    at async checkNextSpeaker (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:149708:28)
+    at async GeminiClient.sendMessageStream (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:154559:38)
+    at async runNonInteractive (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:248683:24)
+    at async main (file:///home/runner/.npm/_npx/f1d9c848f6ced91a/node_modules/@vybestack/llxprt-code/bundle/llxprt.js:252862:3)
+
