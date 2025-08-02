@@ -1,14 +1,16 @@
 name: Upstream Sync
 
-# IMPORTANT: This workflow requires a Personal Access Token (PAT) to create PRs
-# 1. Create a PAT at https://github.com/settings/tokens with 'repo' scope
-# 2. Add it as a secret named 'PAT' in your repository settings
-# 3. Replace ${{ secrets.GITHUB_TOKEN }} with ${{ secrets.PAT }} in the Create Pull Request step
+# This workflow syncs changes from upstream by:
+# 1. Cherry-picking new commits from upstream/main
+# 2. Using llxprt-code to resolve any merge conflicts
+# 3. Creating a new branch with the synced changes
+# 4. Providing a summary in the Actions tab
+# You can then manually review and merge the changes
 
 on:
   # schedule:
-    # Run daily at 3 AM ART (UTC-3), which is 6 AM UTC
-    # - cron: '0 6 * * *'
+  # Run daily at 3 AM ART (UTC-3), which is 6 AM UTC
+  # - cron: '0 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -146,10 +148,10 @@ jobs:
         run: |
           # Revert any changes to .github/ directory to avoid workflow permission errors
           git checkout HEAD -- .github/ || true
-          
+
           # Remove the log file
           rm -f llxprt-output.log
-          
+
           # Check if there are changes to commit
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
@@ -159,79 +161,43 @@ jobs:
         if: steps.check-commits.outputs.has_new_commits == 'true'
         run: |
           git push origin ${{ steps.create-branch.outputs.branch_name }}
-      - name: Create Pull Request
+      - name: Summary
         if: steps.check-commits.outputs.has_new_commits == 'true'
-        id: create-pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Prepare PR title and body
-          PR_TITLE="🔄 Upstream Sync: ${{ steps.check-commits.outputs.commits_behind }} new commits"
+          echo "## 🔄 Upstream Sync Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Sync Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch created:** \`${{ steps.create-branch.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commits synced:** ${{ steps.check-commits.outputs.commits_behind }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **llxprt-code exit code:** ${{ steps.llxprt.outputs.exit_code }}" >> $GITHUB_STEP_SUMMARY
+
           if [ "${{ steps.check-conflicts.outputs.has_conflicts }}" == "true" ]; then
-            PR_TITLE="$PR_TITLE (⚠️ Conflicts need resolution)"
-          fi
-          # Create PR body
-          cat > pr-body.md << 'EOF'
-          ## Upstream Sync Summary
-          This PR syncs ${{ steps.check-commits.outputs.commits_behind }} commits from upstream.
-          ### 🤖 llxprt-code Execution
-          - Exit code: ${{ steps.llxprt.outputs.exit_code }}
-          - Timeout: 45 minutes
-          - Flags: `--yolo`
-          ### 📊 Status
-          EOF
-          if [ "${{ steps.check-conflicts.outputs.has_conflicts }}" == "true" ]; then
-            cat >> pr-body.md << 'EOF'
-          - ⚠️ **Merge conflicts detected!** Manual resolution required.
-          #### Conflicted Files:
-          ```
-          ${{ steps.check-conflicts.outputs.conflict_files }}
-          ```
-          EOF
+            echo "- **Status:** ⚠️ Merge conflicts detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ Conflicted Files" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.check-conflicts.outputs.conflict_files }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
-            cat >> pr-body.md << 'EOF'
-          - ✅ No merge conflicts detected
-          EOF
+            echo "- **Status:** ✅ No conflicts" >> $GITHUB_STEP_SUMMARY
           fi
-          cat >> pr-body.md << 'EOF'
-          ### 📝 Commits to Cherry-pick
-          Commit range: `${{ steps.commit-info.outputs.commit_range }}`
-          <details>
-          <summary>Click to see commit list</summary>
-          ```
-          ${{ steps.commit-info.outputs.commit_log }}
-          ```
-          </details>
-          ### 🔧 llxprt-code Output (last 100 lines)
-          <details>
-          <summary>Click to see output</summary>
-          ```
-          ${{ steps.llxprt.outputs.llxprt_output }}
-          ```
-          </details>
-          ---
-          ### ⚡ Next Steps
-          1. Review the changes in this PR
-          2. If conflicts exist, resolve them manually
-          3. Run tests to ensure everything works
-          4. Merge when ready
-          > **Note**: This branch will be preserved for inspection. Do not delete until the sync is complete.
-          EOF
-          # Create the PR using GitHub CLI with simplified options
-          # Note: Using GH_TOKEN instead of GITHUB_TOKEN for better compatibility
-          PR_URL=$(gh pr create \
-            --title "$PR_TITLE" \
-            --body-file pr-body.md \
-            --head "${{ steps.create-branch.outputs.branch_name }}" \
-            --base main \
-            --draft || echo "FAILED")
-          
-          if [ "$PR_URL" = "FAILED" ]; then
-            echo "Failed to create PR. You may need to:"
-            echo "1. Create a Personal Access Token (PAT) with 'repo' and 'pull_request' scopes"
-            echo "2. Add it as a secret named 'PAT' in your repository settings"
-            echo "3. Update this workflow to use 'secrets.PAT' instead of 'secrets.GITHUB_TOKEN'"
-            exit 1
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 Commits Cherry-picked" >> $GITHUB_STEP_SUMMARY
+          echo "Range: \`${{ steps.commit-info.outputs.commit_range }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.commit-info.outputs.commit_log }}" | head -20 >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚡ Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check out the branch: \`git fetch origin && git checkout ${{ steps.create-branch.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Review the changes" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check-conflicts.outputs.has_conflicts }}" == "true" ]; then
+            echo "3. Resolve any remaining conflicts" >> $GITHUB_STEP_SUMMARY
+            echo "4. Run tests to ensure everything works" >> $GITHUB_STEP_SUMMARY
+            echo "5. Merge when ready" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "3. Run tests to ensure everything works" >> $GITHUB_STEP_SUMMARY
+            echo "4. Merge when ready" >> $GITHUB_STEP_SUMMARY
           fi
-          
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
