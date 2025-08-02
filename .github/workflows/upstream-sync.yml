@@ -1,5 +1,10 @@
 name: Upstream Sync
 
+# IMPORTANT: This workflow requires a Personal Access Token (PAT) to create PRs
+# 1. Create a PAT at https://github.com/settings/tokens with 'repo' scope
+# 2. Add it as a secret named 'PAT' in your repository settings
+# 3. Replace ${{ secrets.GITHUB_TOKEN }} with ${{ secrets.PAT }} in the Create Pull Request step
+
 on:
   # schedule:
     # Run daily at 3 AM ART (UTC-3), which is 6 AM UTC
@@ -156,8 +161,9 @@ jobs:
           git push origin ${{ steps.create-branch.outputs.branch_name }}
       - name: Create Pull Request
         if: steps.check-commits.outputs.has_new_commits == 'true'
+        id: create-pr
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Prepare PR title and body
           PR_TITLE="🔄 Upstream Sync: ${{ steps.check-commits.outputs.commits_behind }} new commits"
@@ -211,9 +217,21 @@ jobs:
           4. Merge when ready
           > **Note**: This branch will be preserved for inspection. Do not delete until the sync is complete.
           EOF
-          # Create the PR using GitHub CLI
-          gh pr create \
+          # Create the PR using GitHub CLI with simplified options
+          # Note: Using GH_TOKEN instead of GITHUB_TOKEN for better compatibility
+          PR_URL=$(gh pr create \
             --title "$PR_TITLE" \
             --body-file pr-body.md \
             --head "${{ steps.create-branch.outputs.branch_name }}" \
-            --base main
+            --base main \
+            --draft || echo "FAILED")
+          
+          if [ "$PR_URL" = "FAILED" ]; then
+            echo "Failed to create PR. You may need to:"
+            echo "1. Create a Personal Access Token (PAT) with 'repo' and 'pull_request' scopes"
+            echo "2. Add it as a secret named 'PAT' in your repository settings"
+            echo "3. Update this workflow to use 'secrets.PAT' instead of 'secrets.GITHUB_TOKEN'"
+            exit 1
+          fi
+          
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
