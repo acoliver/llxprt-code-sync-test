@@ -139,6 +139,12 @@ jobs:
       - name: Commit changes
         if: steps.check-commits.outputs.has_new_commits == 'true'
         run: |
+          # Revert any changes to .github/ directory to avoid workflow permission errors
+          git checkout HEAD -- .github/ || true
+          
+          # Remove the log file
+          rm -f llxprt-output.log
+          
           # Check if there are changes to commit
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
